@@ -31,6 +31,16 @@ form:
       underline: true
       fields:
 
+        feed_parameters.api:
+          type: select
+          size: medium
+          classes: fancy
+          label: API
+          default: 0
+          options:
+            0: "Old API"
+            1: "Graph API"
+
         feed_parameters.count:
           type: text
           size: small

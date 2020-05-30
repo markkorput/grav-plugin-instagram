@@ -63,6 +63,7 @@ class InstagramPlugin extends Plugin
         $twig = $this->grav['twig'];
         /** @var Data $config */
         $config = $this->mergeConfig($page, TRUE);
+        $useGraphApi = $config->get('feed_parameters.api');
 
         // Autoload composer components
         require __DIR__ . '/vendor/autoload.php';
@@ -83,6 +84,12 @@ class InstagramPlugin extends Plugin
         // Generate API url
         $url = 'https://api.instagram.com/v1/users/self/media/recent/?access_token=' . $config->get('feed_parameters.access_token').'&count=' . $config->get('feed_parameters.count');
 
+        if ($useGraphApi) {
+            $usrid = $config->get('feed_parameters.user_id');
+            $accesstoken = $config->get('feed_parameters.access_token');
+            $url = 'https://graph.instagram.com/'.$usrid.'/media?access_token='.$accesstoken;
+        }
+
         // Get the cached results if available
         $results = $this->cache->get($url);
 
@@ -92,6 +99,10 @@ class InstagramPlugin extends Plugin
 
             // Cache the results
             $this->cache->set($url, $results, InstagramPlugin::HOUR_IN_SECONDS * $config->get('feed_parameters.cache_time')); // Convert hours to seconds
+        }
+
+        if ($useGraphApi) {
+            return $results;
         }
 
         $this->parseResponse($results);
