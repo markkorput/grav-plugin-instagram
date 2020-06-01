@@ -9,8 +9,7 @@ use Grav\Common\GPM\Response;
 class InstagramPlugin extends Plugin
 {
     private $template_html = 'partials/instagram.html.twig';
-    private $template_vars = [];
-    private $cache;
+    // private $cache;
     const HOUR_IN_SECONDS = 3600;
 
     /**
@@ -57,65 +56,64 @@ class InstagramPlugin extends Plugin
      */
     public function getFeed($params = [])
     {
-        /** @var Page $page */
-        $page = $this->grav['page'];
-        /** @var Twig $twig */
-        $twig = $this->grav['twig'];
         /** @var Data $config */
-        $config = $this->mergeConfig($page, TRUE);
+        $config = $this->mergeConfig($this->grav['page'], TRUE);
         $useGraphApi = $config->get('feed_parameters.api');
 
         // Autoload composer components
         require __DIR__ . '/vendor/autoload.php';
 
-        // Set up cache settings
-        $cache_config = array(
+        // Init the cache engine
+        $cache = phpFastCache("files", array(
             "storage"   =>  "files",
             "default_chmod" => 0777,
             "fallback" => "files",
             "securityKey" => "auto",
             "htaccess" => true,
             "path" => __DIR__ . "/cache"
-        );
-
-        // Init the cache engine
-        $this->cache = phpFastCache("files", $cache_config);
+        ));
 
         // Generate API url
-        $url = 'https://api.instagram.com/v1/users/self/media/recent/?access_token=' . $config->get('feed_parameters.access_token').'&count=' . $config->get('feed_parameters.count');
+        $url = '';
 
         if ($useGraphApi) {
             $usrid = $config->get('feed_parameters.user_id');
             $accesstoken = $config->get('feed_parameters.access_token');
             $url = 'https://graph.instagram.com/'.$usrid.'/media?access_token='.$accesstoken;
+        } else {
+            $url = 'https://api.instagram.com/v1/users/self/media/recent/?access_token=' . $config->get('feed_parameters.access_token').'&count=' . $config->get('feed_parameters.count');
         }
 
         // Get the cached results if available
-        $results = $this->cache->get($url);
+        $results = $cache->get($url);
 
         // Get the results from the live API, cached version not found
         if ($results === null) {
             $results = Response::get($url);
 
             // Cache the results
-            $this->cache->set($url, $results, InstagramPlugin::HOUR_IN_SECONDS * $config->get('feed_parameters.cache_time')); // Convert hours to seconds
+            $cache->set($url, $results, InstagramPlugin::HOUR_IN_SECONDS * $config->get('feed_parameters.cache_time')); // Convert hours to seconds
         }
 
         if ($useGraphApi) {
             return $results;
         }
 
-        $this->parseResponse($results);
+        $record = $this->parseResponse($results);
 
-        $this->template_vars = [
+        if (is_null($record)) {
+            return '';
+        }
+
+        $feeds = $this->addFeed($record);
+
+        $output = $this->grav['twig']->twig()->render($this->template_html, [
             'user_id'   => $config->get('feed_parameters.user_id'),
             'client_id' => $config->get('feed_parameters.client_id'),
             'feed'      => $this->feeds,
             'count'     => $config->get('feed_parameters.count'),
             'params'    => $params
-        ];
-
-        $output = $this->grav['twig']->twig()->render($this->template_html, $this->template_vars);
+        ]);
 
         return $output;
     }
@@ -127,29 +125,35 @@ class InstagramPlugin extends Plugin
             }
         }
         krsort($this->feeds);
+        return $this->feeds;
     }
 
-    private function parseResponse($json) {
-        $r = array();
+    private static function parseResponse($json) {
         $content = json_decode($json, true);
-        if (count($content['data'])) {
-            foreach ($content['data'] as $key => $val) {
-                $created_at = $val['created_time'];
-                $r[$created_at]['time'] = $created_at;
-                $r[$created_at]['text'] = $val['caption']['text'];
-                $r[$created_at]['image'] = $val['images']['standard_resolution']['url'];
-                $r[$created_at]['image_width'] = $val['images']['standard_resolution']['width'];
-                $r[$created_at]['thumb'] = $val['images']['low_resolution']['url'];
-                $r[$created_at]['thumb_width'] = $val['images']['low_resolution']['width'];
-                $r[$created_at]['micro'] = $val['images']['thumbnail']['url'];
-                $r[$created_at]['micro_width'] = $val['images']['thumbnail']['width'];
-                $r[$created_at]['user'] = $val['user']['full_name'];
-                $r[$created_at]['link'] = $val['link'];
-                $r[$created_at]['comments'] = $val['comments']['count'];
-                $r[$created_at]['likes'] = $val['likes']['count'];
-                $r[$created_at]['type'] = $val['type'];
-            }
-            $this->addFeed($r);
+
+        if (count($content['data']) === 0) {
+            return NULL;
         }
+
+        $r = array();
+
+        foreach ($content['data'] as $key => $val) {
+            $created_at = $val['created_time'];
+            $r[$created_at]['time'] = $created_at;
+            $r[$created_at]['text'] = $val['caption']['text'];
+            $r[$created_at]['image'] = $val['images']['standard_resolution']['url'];
+            $r[$created_at]['image_width'] = $val['images']['standard_resolution']['width'];
+            $r[$created_at]['thumb'] = $val['images']['low_resolution']['url'];
+            $r[$created_at]['thumb_width'] = $val['images']['low_resolution']['width'];
+            $r[$created_at]['micro'] = $val['images']['thumbnail']['url'];
+            $r[$created_at]['micro_width'] = $val['images']['thumbnail']['width'];
+            $r[$created_at]['user'] = $val['user']['full_name'];
+            $r[$created_at]['link'] = $val['link'];
+            $r[$created_at]['comments'] = $val['comments']['count'];
+            $r[$created_at]['likes'] = $val['likes']['count'];
+            $r[$created_at]['type'] = $val['type'];
+        }
+        // $this->addFeed($r);
+        return $r;
     }
 }
