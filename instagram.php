@@ -11,6 +11,7 @@ class InstagramPlugin extends Plugin
     private $template_html = 'partials/instagram.html.twig';
     // private $cache;
     const HOUR_IN_SECONDS = 3600;
+    private $instagramJsUsed = false;
 
     /**
      * Return a list of subscribed events.
@@ -31,8 +32,21 @@ class InstagramPlugin extends Plugin
     {
         $this->enable([
             'onTwigTemplatePaths' => ['onTwigTemplatePaths', 0],
-            'onTwigInitialized' => ['onTwigInitialized', 0]
+            'onTwigInitialized' => ['onTwigInitialized', 100]
         ]);
+
+        // TODO: make paths configurable
+        if ($this->grav['uri']->path() === '/instagram/graph/feed') {
+            header('Content-type: application/json');
+            echo $this->getGraphFeedJson();
+            exit();
+        }
+
+        if ($this->grav['uri']->path() === '/instagram/graph/item') {
+            header('Content-type: application/json');
+            echo $this->getGraphItemJson();
+            exit();
+        }
     }
 
     /**
@@ -41,6 +55,7 @@ class InstagramPlugin extends Plugin
     public function onTwigInitialized()
     {
         $this->grav['twig']->twig->addFunction(new \Twig_SimpleFunction('instagram_feed', [$this, 'getFeed']));
+        $this->grav['twig']->twig->addFunction(new \Twig_SimpleFunction('instagram_graph_feed', [$this, 'getGraphFeed']));
     }
 
     /**
@@ -155,5 +170,91 @@ class InstagramPlugin extends Plugin
         }
         // $this->addFeed($r);
         return $r;
+    }
+
+    /**
+     * @return javascript code that fetches and displays instagram feed
+     */
+    public function getGraphFeed($params = [])
+    {
+        // add two js files to page
+        $url = 'plugin://instagram/js/instagram.js';
+        $this->grav['assets']->addJs($url, array('group' => 'bottom'));
+        $url = 'plugin://instagram/js/fetch_graph.js';
+        $this->grav['assets']->addJs($url, array('group' => 'bottom'));
+        // add graphFeedContainer element to page that will
+        // be populated by fetch_graph.js
+        return '<ul class="graphFeedContainer"></ul>';
+    }
+
+    private function getGraphFeedJson() {
+        $config = $this->mergeConfig($this->grav['page'], TRUE);
+        $usrid = $config->get('feed_parameters.user_id');
+        $accesstoken = $config->get('feed_parameters.access_token');
+        $url = 'https://graph.instagram.com/'.$usrid.'/media?access_token='.$accesstoken;
+
+        // // Init the cache engine
+        // $cache = phpFastCache("files", array(
+        //     "storage"   =>  "files",
+        //     "default_chmod" => 0777,
+        //     "fallback" => "files",
+        //     "securityKey" => "auto",
+        //     "htaccess" => true,
+        //     "path" => __DIR__ . "/cache"
+        // ));
+
+        // Get the cached results if available
+        // $results = $cache->get($url);
+
+        // Get the results from the live API, cached version not found
+        // if ($results === null) {
+        $results = Response::get($url);
+
+            // Cache the results
+            // $cache->set($url, $results, InstagramPlugin::HOUR_IN_SECONDS * $config->get('feed_parameters.cache_time')); // Convert hours to seconds
+        // }
+
+        return $results;
+    }
+
+    private function getGraphItemJson() {
+        $id = $this->grav['uri']->query('id');
+        $config = $this->mergeConfig($this->grav['page'], TRUE);
+        // $usrid = $config->get('feed_parameters.user_id');
+        $accesstoken = $config->get('feed_parameters.access_token');
+        $url = 'https://graph.instagram.com/'.$id
+            .'?access_token='.$accesstoken
+            .'&fields=media_url,caption';
+
+        // https://graph.instagram.com/17874321829477580?access_token=IGQVJWMDVaUjIyRkFIYWRuaFB6bmRoTlVIVmZA0aGVfV2JPSWxGX2w1c1lWZAzZAORVU3ZAHdJaGY2S0NIaUpDY3RkeWtzVFFVOFNyZAk5kV3FCZA2xsVzFrRHFpcF9tTElSVU9DYVNzRGo3aTN4V2UyRjdYYwZDZ&fields=media_url,caption
+
+
+        // // Init the cache engine
+        // $cache = phpFastCache("files", array(
+        //     "storage"   =>  "files",
+        //     "default_chmod" => 0777,
+        //     "fallback" => "files",
+        //     "securityKey" => "auto",
+        //     "htaccess" => true,
+        //     "path" => __DIR__ . "/cache"
+        // ));
+
+        // Get the cached results if available
+        // $results = $cache->get($url);
+
+        // Get the results from the live API, cached version not found
+        // if ($results === null) {
+
+        try {
+            $results = Response::get($url);
+        } catch(RuntimeException $e) {
+            $results = json_encode(["error" => $e->getMessage()]);
+        }
+
+        // Cache the results
+            // $cache->set($url, $results, InstagramPlugin::HOUR_IN_SECONDS * $config->get('feed_parameters.cache_time')); // Convert hours to seconds
+        // }
+
+        return $results;
     }
 }
